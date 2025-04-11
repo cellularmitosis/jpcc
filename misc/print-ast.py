@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
-# Demonstration of patching in an alternative Node.show() method.
+# Print out the AST of a C file.
+# This is a demonstration of patching in an alternative Node.show() method.
 
 import sys
-sys.path.insert(0, '/Users/cell/github/eliben/pycparser/')
-sys.path.insert(0, '/home/cell/github/eliben/pycparser/')
-from pycparser import c_parser
+#sys.path.insert(0, '/Users/cell/github/eliben/pycparser/')
+#sys.path.insert(0, '/home/cell/github/eliben/pycparser/')
+from pycparser import parse_file
 from pycparser.c_ast import *
 
 def show(self, buf=sys.stdout, indent=4, showcoord=True, _my_node_name=None, _lead='', _lastcoord=None, _depth=1):
@@ -91,10 +92,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     fname = sys.argv[1]
-    with open(fname, 'r') as fd:
-        text = fd.read()
-    parser = c_parser.CParser()
-    ast = parser.parse(text)
+    if sys.platform == "darwin":
+        cpp="/usr/bin/clang"
+    else:
+        cpp="/usr/bin/gcc"
+    ast = parse_file(fname, use_cpp=True, cpp_path=cpp, cpp_args=['-E','-P'])
 
     if sys.argv[-1] == "2":
         # patch in our custom show

@@ -3,9 +3,9 @@
 # dump a pycparser AST as symbolic expressions.
 
 import sys
-sys.path.insert(0, '/Users/cell/github/eliben/pycparser/')
-sys.path.insert(0, '/home/cell/github/eliben/pycparser/')
-from pycparser import c_parser
+#sys.path.insert(0, '/Users/cell/github/eliben/pycparser/')
+#sys.path.insert(0, '/home/cell/github/eliben/pycparser/')
+from pycparser import parse_file
 from pycparser.c_ast import *
 
 
@@ -70,9 +70,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     fname = sys.argv[1]
-    with open(fname, 'r') as fd:
-        text = fd.read()
-    parser = c_parser.CParser()
-    ast = parser.parse(text)
+    if sys.platform == "darwin":
+        cpp="/usr/bin/clang"
+    else:
+        cpp="/usr/bin/gcc"
+    ast = parse_file(fname, use_cpp=True, cpp_path=cpp, cpp_args=['-E','-P'])
+
     text = format_exprs(ast.make_exprs())
     print(text)
