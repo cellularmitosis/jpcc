@@ -98,9 +98,8 @@ if __name__ == "__main__":
         cpp="/usr/bin/gcc"
     ast = parse_file(fname, use_cpp=True, cpp_path=cpp, cpp_args=['-E','-P'])
 
-    if sys.argv[-1] == "2":
-        # patch in our custom show
-        Node.show = show
-        ast.show()
-    else:
-        ast.show(attrnames=True, showemptyattrs=False, nodenames=False, showcoord=False)
+    #ast.show(attrnames=True, showemptyattrs=False, nodenames=False, showcoord=False)
+
+    # patch in our custom show
+    Node.show = show
+    ast.show()
