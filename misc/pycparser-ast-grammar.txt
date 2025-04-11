@@ -1,0 +1,59 @@
+# my attempt at mapping the pycparser grammar.
+# this is an incomplete work-in-progress.
+
+# see pycparser/pycparser/c_ast.py
+# see pycparser/examples/explore_ast.py
+
+
+FileAST
+    ext: [Decl|Typedef|FuncDef]
+
+Decl
+    name: str
+    quals: [str]
+    align: ?
+    storage: [str]
+    funcspec: [str]
+    type: TypeDecl|ArrayDecl|PtrDecl|FuncDecl|?
+    init: Constant|ID|BinaryOp|?
+    bitsize: Constant
+
+FuncDecl
+    args: ParamList
+    type: TypeDecl
+
+FuncDef
+    decl: FuncDecl
+    param_decls: ?
+    body: Compound
+
+TypeDecl
+    declname: str
+    quals: [str]
+    type: IdentifierType|?
+    align: ?
+
+IdentifierType
+    names: [str]
+
+Compound
+    block_items: [Node?]
+
+Return
+    expr: Node?
+
+Constant
+    type: str
+    value: str
+
+ParamList
+    params: [Decl]
+
+BinaryOp
+    op: str
+    left: Constant|ID|FuncCall|UnaryOp|BinaryOp
+    right: Constant|ID|FuncCall|UnaryOp|BinaryOp
+
+UnaryOp
+    op: str
+    expr: Constant|ID|FuncCall|UnaryOp|BinaryOp
