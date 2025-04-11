@@ -97,7 +97,7 @@ class Program(C_AST):
 
 def parse_pycp_ast(fname: str) -> C_AST:
     "Use pycparser to parse a C file, returning the AST"
-    c_ast = pycparser.parse_file('c/return-2.c', use_cpp=False)
+    c_ast = pycparser.parse_file(fname, use_cpp=False)
     return c_ast
 
 
