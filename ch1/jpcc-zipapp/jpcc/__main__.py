@@ -129,18 +129,21 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # use gcc to compile the assembly to machine code.
+    # note: test_compiler expects the output binary to
+    # be the basename of the .c file, in the same directory.
+    # so 'cc /foo/bar.c' should produce '/foo/bar'.
     c_flag = '-c' if '-c' in g_flags else ''
     if '-c' in g_flags:
         if '-o' in g_options:
             o_fname = g_options['-o']
         else:
-            o_fname = drop_ext(basename(c_fname)) + '.o'
+            o_fname = drop_ext(c_fname) + '.o'
         cmdline = f"{cc} -c -o {o_fname} {s_fname}"
     else:
         if '-o' in g_options:
             exe_fname = g_options['-o']
         else:
-            exe_fname = drop_ext(basename(c_fname))
+            exe_fname = drop_ext(c_fname)
         cmdline = f"{cc} -o {exe_fname} {s_fname}"
     sys.stderr.write(cmdline + '\n')
     status = shell(cmdline)
