@@ -1,4 +1,4 @@
-# This file translates a chapter 1 C AST into a ASM AST and emits GAS-syntax assembly.
+# This file translates a chapter 2 TAC AST into a ASM AST and emits GAS-syntax assembly.
 
 from __future__ import annotations
 from dataclasses import dataclass
@@ -6,11 +6,16 @@ from dataclasses import dataclass
 from jpcc import Targets
 
 
-# ASDL for the subset of ASM from chapter 1:
+# ASDL for the subset of ASM from chapter 2:
 #       program = Program(funcdef)
 #       funcdef = Function(identifier name, instruction* instructions)
-#   instruction = Mov(operand src, operand dst) | Ret
-#       operand = Imm(int) | Register
+#   instruction = Mov(operand src, operand dst)
+#               | Unary(unaryop, operand)
+#               | AllocateStack(int)
+#               | Ret
+# unaryop = Neg | Not
+#       operand = Imm(int) | Reg(reg) | Pseudo(identifier) | Stack(int)
+#      reg = AX | R10
 
 # So for 'return_2.c', we want to make the following translation:
 #   C AST:             ->  ASM AST:
@@ -26,10 +31,20 @@ from jpcc import Targets
 #                      ->  )
 
 # And then emit:
-#           .globl main
-#   main:
-#           movl $2, %eax
-#           ret
+#     .globl main
+# main:
+#     pushq %rbp
+#     movq %rsp, %rbp
+#     subq $8, %rsp
+#     movl $2, -4(%rbp)
+#     negl -4(%rbp)
+#     movl -4(%rbp), %r10d
+#     movl %r10d, -8(%rbp)
+#     notl -8(%rbp)
+#     movl -8(%rbp), %eax
+#     movq %rbp, %rsp
+#     popq %rbp
+#     ret
 
 # Note: 'GAS' (GNU as) syntax is:
 #   instruction source, destination

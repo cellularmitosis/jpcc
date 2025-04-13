@@ -6,6 +6,7 @@ import os
 from jpcc import C
 from jpcc import x86_64
 from jpcc import Targets
+from jpcc import Serialization
 
 
 def parse_command_line() -> tuple[set, dict, list]:
@@ -19,7 +20,9 @@ def parse_command_line() -> tuple[set, dict, list]:
         # flags for compatibility with test_compiler from github.com/nlsandler/writing-a-c-compiler-tests:
         '--lex', '--parse', '--codgen', '--validate', '--tacky', '--codegen', '--run',
         # standard compiler flags:
-        '-S', '-c'
+        '-S', '-c',
+        # serialization flags
+        '--c-ast', '--asm-ast',
     ])
     # options expect a argument:
     option_names = set(['-o', '--target'])
@@ -103,22 +106,26 @@ if __name__ == "__main__":
     if status != 0:
         sys.exit(status)
 
-    # build the C AST.
+    # build the AST.
     c_ast = C.parse(i_fname)
+    if '--c-ast' in g_flags:
+        # dump the C AST and exit.
+        print(Serialization.to_exprs_str(c_ast))
+        sys.exit(0)
     if '--lex' in g_flags or '--parse' in g_flags:
         # stop after lexing (or parsing).
         sys.exit(0)
 
     # generate assembly.
-    stop_after_asm = False
-    if '--codegen' in g_flags:
-        stop_after_asm = True
-    s_fname = "/tmp/" + drop_ext(basename(c_fname)) + '.s'
-    if '-S' in g_flags:
-        stop_after_asm = True
-        if '-o' in g_options:
-            s_fname = g_options['-o']
     asm_ast = x86_64.gen_Program(c_ast)
+    if '--asm-ast' in g_flags:
+        # dump the ASM AST and exit.
+        print(Serialization.to_exprs_str(asm_ast))
+        sys.exit(0)
+    if '-S' in g_flags and '-o' in g_options:
+        s_fname = g_options['-o']
+    else:
+        s_fname = "/tmp/" + drop_ext(basename(c_fname)) + '.s'
     asm_text = asm_ast.gas()
     if s_fname == '-':
         sys.stdout.write(asm_text)
@@ -126,7 +133,8 @@ if __name__ == "__main__":
         with open(s_fname, 'w') as fd:
             fd.write(asm_text)
             sys.stderr.write(f"Wrote: {s_fname}\n")
-    if stop_after_asm:
+    if '--codegen' in g_flags or '-S' in g_flags:
+        # stop after codegen.
         sys.exit(0)
 
     # use gcc to compile the assembly to machine code.

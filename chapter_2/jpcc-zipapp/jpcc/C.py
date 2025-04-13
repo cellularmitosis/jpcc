@@ -1,4 +1,4 @@
-# This file translates a pycparser C AST into a chapter 1 C AST.
+# This file translates a pycparser C AST into a chapter 2 C AST.
 # See "Writing a C Compiler" by Nora Sandler.
 
 import sys
@@ -12,25 +12,33 @@ except:
     sys.exit(1)
 
 
-# ASDL for the subset of C from chapter 1:
+# ASDL for the subset of C from chapter 2:
 #     program = Program(funcdef)
 #     funcdef = Function(identifier name, statement body)
 #   statement = Return(expr)
-#        expr = Constant(int)
+#        expr = Constant(int) | Unary(unaryop, expr)
+#     unaryop = Complement | Negate
 
-# EBNF for the subset of C from chapter 1:
-#      <program> ::= <function>
-#     <function> ::= "int" <identifier> "(" "void" ")" "{" <statement> "}"
-#    <statement> ::= "return" <expr> ";"
-#         <expr> ::= <int>
-#   <identifier> ::= ? An identifier token ?
-#          <int> ::= ? A constant token ?
 
 class C_AST: pass
 
 
+class Expression(C_AST): pass
+
+
+class UnaryOperator(C_AST): pass
+class Complement(UnaryOperator): pass
+class Negate(UnaryOperator): pass
+
+
 @dataclass
-class Constant(C_AST):
+class Unary(Expression):
+    op: UnaryOperator
+    expr: Expression
+
+
+@dataclass
+class Constant(Expression):
     value: int
 
 
@@ -53,36 +61,40 @@ class Program(C_AST):
     funcdef: Function
 
 
-# return-2.c:
+# return-comp-neg-2.c 
 #   int main(void) {
-#       return 2;
+#       return ~(-2);
 #   }
 
-# pycparser AST for return_2.c:
-#   FileAST(
-#   .   ext[0] = FuncDef(  // line 1
-#   .   .   decl = Decl(
-#   .   .   .   name = main
-#   .   .   .   type = FuncDecl(
-#   .   .   .   .   args = ParamList(  // line 0
-#   .   .   .   .   .   params[0] = Typename(
-#   .   .   .   .   .   .   type = TypeDecl(
-#   .   .   .   .   .   .   .   type = IdentifierType(  // line 1
-#   .   .   .   .   .   .   .   .   names = ['void']
-#   .   .   .   .   )   )   )   )   
-#   .   .   .   .   type = TypeDecl(
-#   .   .   .   .   .   declname = main
-#   .   .   .   .   .   type = IdentifierType(
-#   .   .   .   .   .   .   names = ['int']
-#   .   .   )   )   )   )   
-#   .   .   body = Compound(
-#   .   .   .   block_items[0] = Return(  // line 2
-#   .   .   .   .   expr = Constant(
-#   .   .   .   .   .   type = int
-#   .   .   .   .   .   value = 2
-#   )   )   )   )   )   
+# pycparser AST for return-comp-neg-2.c:
+# FileAST(
+# .   ext[0] = FuncDef(  // line 1
+# .   .   decl = Decl(
+# .   .   .   name = main
+# .   .   .   type = FuncDecl(
+# .   .   .   .   args = ParamList(  // line 0
+# .   .   .   .   .   params[0] = Typename(
+# .   .   .   .   .   .   type = TypeDecl(
+# .   .   .   .   .   .   .   type = IdentifierType(  // line 1
+# .   .   .   .   .   .   .   .   names = ['void']
+# .   .   .   .   )   )   )   )   
+# .   .   .   .   type = TypeDecl(
+# .   .   .   .   .   declname = main
+# .   .   .   .   .   type = IdentifierType(
+# .   .   .   .   .   .   names = ['int']
+# .   .   )   )   )   )   
+# .   .   body = Compound(
+# .   .   .   block_items[0] = Return(  // line 2
+# .   .   .   .   expr = UnaryOp(
+# .   .   .   .   .   op = ~
+# .   .   .   .   .   expr = UnaryOp(
+# .   .   .   .   .   .   op = -
+# .   .   .   .   .   .   expr = Constant(
+# .   .   .   .   .   .   .   type = int
+# .   .   .   .   .   .   .   value = 2
+# )   )   )   )   )   )   )   
 
-# chapter 1 AST for return-2.c:
+# chapter 2 AST for return-comp-neg-2.c 
 #   Program(
 #       Function(
 #           name="main",
@@ -91,6 +103,14 @@ class Program(C_AST):
 #           )
 #       )
 #   )
+
+
+# ASDL for the subset of C from chapter 2:
+#     program = Program(funcdef)
+#     funcdef = Function(identifier name, statement body)
+#   statement = Return(expr)
+#        expr = Constant(int) | Unary(unaryop, expr)
+#     unaryop = Complement | Negate
 
 
 def parse_pycp_ast(fname: str) -> C_AST:
