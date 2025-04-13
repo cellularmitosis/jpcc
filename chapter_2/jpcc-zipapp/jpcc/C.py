@@ -4,6 +4,8 @@
 import sys
 from dataclasses import dataclass
 
+import pycparser.c_ast
+
 try:
     import pycparser
 except:
@@ -94,17 +96,7 @@ class Program(C_AST):
 # .   .   .   .   .   .   .   value = 2
 # )   )   )   )   )   )   )   
 
-# chapter 2 AST for return-comp-neg-2.c 
-#   Program(
-#       Function(
-#           name="main",
-#           body=Return(
-#               Constant(2)
-#           )
-#       )
-#   )
-
-
+# DELETEME
 # ASDL for the subset of C from chapter 2:
 #     program = Program(funcdef)
 #     funcdef = Function(identifier name, statement body)
@@ -112,41 +104,71 @@ class Program(C_AST):
 #        expr = Constant(int) | Unary(unaryop, expr)
 #     unaryop = Complement | Negate
 
+# chapter 2 AST for return-comp-neg-2.c 
+#FIXME
 
-def parse_pycp_ast(fname: str) -> C_AST:
+
+
+def _c_pycp_ast(fname: str) -> C_AST:
     "Use pycparser to parse a C file, returning the AST"
     c_ast = pycparser.parse_file(fname, use_cpp=False)
     return c_ast
 
 
-def pycp_ast_to_ch1_ast(c_ast: pycparser.c_ast.Node) -> C_AST:
-    "Translate a pycparser AST into a chapter 1 AST"
+def _pycp_ast_to_ch2_ast(c_ast: pycparser.c_ast.Node) -> C_AST:
+    "Translate a pycparser AST into a chapter 2 AST"
+    return _translate_FileAST(c_ast)
+
+
+def _translate_FileAST(c_ast: pycparser.c_ast.FileAST) -> Program:
     assert isinstance(c_ast, pycparser.c_ast.FileAST)
-    funcdef = c_ast.ext[0]
-    assert isinstance(funcdef, pycparser.c_ast.FuncDef)
-    assert funcdef.decl.name == 'main'
-    body = funcdef.body
-    assert isinstance(body, pycparser.c_ast.Compound)
-    assert len(body.block_items) == 1
-    ret = body.block_items[0]
-    assert isinstance(ret, pycparser.c_ast.Return)
-    constant = ret.expr
-    assert isinstance(constant, pycparser.c_ast.Constant)
+    return Program(_translate_FuncDef(c_ast.ext[0]))
 
-    ch1_ast = Program(
-        Function(
-            name = funcdef.decl.name,
-            body = Return(
-                Constant(constant.value)
-            )
-        )
-    )
 
-    return ch1_ast
+def _translate_FuncDef(c_ast: pycparser.c_ast.FuncDef) -> Function:
+    assert isinstance(c_ast, pycparser.c_ast.FuncDef)
+    assert isinstance(c_ast.body, pycparser.c_ast.Compound)
+    assert len(c_ast.body.block_items) == 1
+    ret = _translate_Return(c_ast.body.block_items[0])
+    return Function(name=c_ast.decl.name, body=ret)
+
+
+def _translate_expr(c_ast: pycparser.c_ast.Node) -> C_AST:
+    match type(c_ast):
+        case pycparser.c_ast.UnaryOp:
+            return _translate_UnaryOp(c_ast)
+        case pycparser.c_ast.Constant:
+            return _translate_Constant(c_ast)
+        case _:
+            raise Exception(f"Unsupported expression {c_ast}")
+
+
+def _translate_UnaryOp(c_ast: pycparser.c_ast.UnaryOp) -> Unary:
+    assert isinstance(c_ast, pycparser.c_ast.UnaryOp)
+    match c_ast.op:
+        case "-":
+            op = Negate()
+        case "~":
+            op = Complement()
+        case _:
+            raise Exception(f"Unsupported UnaryOp '{c_ast.op}'")
+    return Unary(op, _translate_expr(c_ast.expr))
+
+
+def _translate_Return(c_ast: pycparser.c_ast.Return) -> Return:
+    assert isinstance(c_ast, pycparser.c_ast.Return)
+    return Return(_translate_expr(c_ast.expr))
+
+
+def _translate_Constant(c_ast: pycparser.c_ast.Constant) -> Constant:
+    assert isinstance(c_ast, pycparser.c_ast.Constant)
+    assert c_ast.type == "int"
+    value = int(c_ast.value)
+    return Constant(value)
 
 
 def parse(fname: str) -> C_AST:
-    "Parse a C file and return the chapter 1 AST"
-    pycp_ast = parse_pycp_ast(fname)
-    ch1_ast = pycp_ast_to_ch1_ast(pycp_ast)
-    return ch1_ast
+    "Parse a C file and return the chapter 2 AST"
+    pycp_ast = _c_pycp_ast(fname)
+    ch2_ast = _pycp_ast_to_ch2_ast(pycp_ast)
+    return ch2_ast
