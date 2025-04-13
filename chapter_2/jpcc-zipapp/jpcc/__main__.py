@@ -19,7 +19,7 @@ Standard cc flags:
   -S -o foo.s: emit assembly to 'foo.s'.
 
 Cross-compilation:
-  --target darwin-x86_64: compile for darwin-x86_64.
+  --target amd64_darwin: compile for amd64_darwin.
   --list-targets: list the supported targets.
 
 Observing AST's:
@@ -30,6 +30,17 @@ Flags for "Writing a C Compiler":
   --lex: stop after lexing.
   --parse: stop after parsing.
   --codgen: stop after codegen.
+
+Environment variables:
+  CC: specify the cc to use for preprocessing and machine code emission.
+    Example: CC=gcc
+    Example: CC=/usr/local/bin/gcc-14
+  JPCC_<target>_SSH_HOST: hostname to use for remote cc invocation.
+    Example: JPCC_amd64_darwin_SSH_HOST=flouride
+    Example: JPCC_amd64_darwin_SSH_HOST=192.168.1.42
+  JPCC_<target>_SSH_CC: specify the cc to use for remote invocation.
+    Example: JPCC_amd64_darwin_SSH_CC=gcc
+    Example: JPCC_amd64_darwin_SSH_CC=/opt/gcc-4.9.5/bin/gcc
 
 Example invocations:
   $ jpcc foo.c
@@ -46,6 +57,10 @@ Example invocations:
 
   $ jpcc --asm-ast foo.c
     Print the assembly AST for foo.c.
+
+  $ JPCC_amd64_darwin_SSH_HOST=flouride jpcc foo.c
+    Emit /tmp/foo.i and /tmp/foo.s, then ssh to host 'flouride' and use gcc to
+    compile foo.s, then scp the binary back to localhost.
 """
     fd.write(msg)
 
@@ -200,18 +215,56 @@ if __name__ == "__main__":
     # be the basename of the .c file, in the same directory.
     # so 'cc /foo/bar.c' should produce '/foo/bar'.
     c_flag = '-c' if '-c' in g_flags else ''
-    if '-c' in g_flags:
-        if '-o' in g_options:
-            o_fname = g_options['-o']
-        else:
-            o_fname = drop_ext(c_fname) + '.o'
-        cmdline = f"{cc} -c -o {o_fname} {s_fname}"
+    if '-o' in g_options:
+        bin_fname = g_options['-o']
     else:
-        if '-o' in g_options:
-            exe_fname = g_options['-o']
-        else:
-            exe_fname = drop_ext(c_fname)
-        cmdline = f"{cc} -o {exe_fname} {s_fname}"
-    sys.stderr.write(cmdline + '\n')
-    status = shell(cmdline)
-    sys.exit(status)
+        bin_fname = drop_ext(c_fname)
+        if '-c' in g_flags:
+            bin_fname += '.o'
+    cc_flags = f"{c_flag}"
+    envarname = f"JPCC_{Targets.current_target}_SSH_HOST"
+    if envarname in os.environ:
+        # use SSH to run gcc on a remote host.
+        # note: using persistent SSH connections can greatly improve
+        # performance when running lots of tests.
+        # here's my ~/.ssh/config:
+        #   Host *
+        #       ControlMaster auto
+        #       ControlPath  ~/.ssh/%r@%h-%p.socket
+        #       ControlPersist  600
+
+        host = os.environ[envarname]
+        sys.stderr.write(f"{envarname}: {host}\n")
+
+        remote_cc = "gcc"
+        envarname = f"JPCC_{Targets.current_target}_SSH_CC"
+        if envarname in os.environ:
+            remote_cc = os.environ[envarname]
+            sys.stderr.write(f"{envarname}: {remote_cc}\n")
+
+        remote_s_fname = f"/tmp/{basename(s_fname)}"
+        remote_bin_fname = f"/tmp/{basename(bin_fname)}"
+
+        # copy the assembly file to the remote host.
+        cmdline = f"scp -q {s_fname} {host}:{remote_s_fname}"
+        sys.stderr.write(cmdline + '\n')
+        status = shell(cmdline)
+        if status != 0: sys.exit(status)
+
+        # invoke the compiler on the remote host.
+        cmdline = f"ssh {host} 'cd /tmp && {remote_cc} {cc_flags} -o {remote_bin_fname} {remote_s_fname}'"
+        sys.stderr.write(cmdline + '\n')
+        status = shell(cmdline)
+        if status != 0: sys.exit(status)
+
+        # copy the executable (or .o file) back to localhost.
+        cmdline = f"scp -q {host}:{remote_bin_fname} {bin_fname}"
+        sys.stderr.write(cmdline + '\n')
+        status = shell(cmdline)
+        sys.exit(status)
+    else:
+        # assume localhost is the correct target and run gcc locally.
+        cmdline = f"{cc} {c_flag} -o {bin_fname} {s_fname}"
+        sys.stderr.write(cmdline + '\n')
+        status = shell(cmdline)
+        sys.exit(status)

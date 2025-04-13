@@ -11,18 +11,18 @@ class Target:
     arch: str
 
     def __str__(self):
-        return f"{self.os}-{self.arch}"
+        return f"{self.arch}_{self.os}"
 
     @classmethod
     def from_str(cls, target_str: str) -> Target:
-        os = target_str.split('-')[0]
-        arch = target_str.split('-')[1]
+        arch = target_str.split('_', maxsplit=1)[0]
+        os = target_str.split('_', maxsplit=1)[1]
         target = Target(os, arch)
         return target
 
 
 supported_targets = [
-    Target.from_str("darwin-x86_64"),
+    Target.from_str("amd64_darwin"),
 ]
 
 

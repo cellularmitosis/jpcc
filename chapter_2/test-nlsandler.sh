@@ -31,7 +31,7 @@ flags="$flags --ignore chapter_1/invalid_parse/missing_type.c"
 
 ch=$1
 if test -z "$ch" ; then
-    ch=1
+    ch=2
 fi
 
 if test -n "$2" ; then
