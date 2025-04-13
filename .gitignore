@@ -1,5 +1,15 @@
+.DS_Store
 lextab.py
 yacctab.py
 __pycache__/
+
+# ignore the built python zipapp.
 /chapter_*/jpcc
-.DS_Store
+
+# only keep .c files in the c dirs.
+/chapter_*/c/*
+!/chapter_*/c/*.c
+
+# only keep .s files in the s dirs.
+/chapter_*/s/*
+!/chapter_*/s/*.s
