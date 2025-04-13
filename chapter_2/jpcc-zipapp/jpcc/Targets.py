@@ -23,7 +23,6 @@ class Target:
 
 supported_targets = [
     Target.from_str("darwin-x86_64"),
-    Target.from_str("linux-x86_64"),
 ]
 
 

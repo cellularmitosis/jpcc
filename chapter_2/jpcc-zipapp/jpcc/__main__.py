@@ -9,6 +9,47 @@ from jpcc import Targets
 from jpcc import Serialization
 
 
+def usage(fd):
+    msg = """Usage: jpcc [options] <C files>
+  --help: print this message.
+
+Standard cc flags:
+  -o foo: name the final executable 'foo'.
+  -S: emit assembly to '/tmp/<file>.s'.
+  -S -o foo.s: emit assembly to 'foo.s'.
+
+Cross-compilation:
+  --target darwin-x86_64: compile for darwin-x86_64.
+  --list-targets: list the supported targets.
+
+Observing AST's:
+  --c-ast: print the C AST and exit.
+  --asm-ast: print the ASM AST and exit.
+
+Flags for "Writing a C Compiler":
+  --lex: stop after lexing.
+  --parse: stop after parsing.
+  --codgen: stop after codegen.
+
+Example invocations:
+  $ jpcc foo.c
+    Emit /tmp/foo.i, /tmp/foo.s and ./foo.
+
+  $ jpcc -S foo.c
+    Emit /tmp/foo.i and /tmp/foo.s.
+
+  $ jpcc -S -o asm.s foo.c
+    Emit /tmp/foo.i and ./asm.s.
+
+  $ jpcc --c-ast foo.c
+    Print the C AST for foo.c.
+
+  $ jpcc --asm-ast foo.c
+    Print the assembly AST for foo.c.
+"""
+    fd.write(msg)
+
+
 def parse_command_line() -> tuple[set, dict, list]:
     """Parse the command line, returning flags, options, and args.
     Flags don't expect an argument, e.g. '--verbose'.
@@ -17,12 +58,15 @@ def parse_command_line() -> tuple[set, dict, list]:
     """
     # flags don't expect an argument:
     flag_names = set([
+        '--help',
         # flags for compatibility with test_compiler from github.com/nlsandler/writing-a-c-compiler-tests:
-        '--lex', '--parse', '--codgen', '--validate', '--tacky', '--codegen', '--run',
+        '--lex', '--parse', '--codgen',
         # standard compiler flags:
         '-S', '-c',
         # serialization flags
         '--c-ast', '--asm-ast',
+        # cross-compilation flags
+        '--list-targets',
     ])
     # options expect a argument:
     option_names = set(['-o', '--target'])
@@ -38,6 +82,7 @@ def parse_command_line() -> tuple[set, dict, list]:
             i += 1
             if i >= len(sys.argv):
                 sys.stderr.write(f"Error: option '{arg}' expects an argument.\n")
+                usage(sys.stderr)
                 sys.exit(1)
             arg2 = sys.argv[i]
             options[arg] = arg2
@@ -67,12 +112,25 @@ def shell(cmdline):
 if __name__ == "__main__":
     (g_flags, g_options, g_args) = parse_command_line()
 
+    if '--help' in g_flags:
+        usage(sys.stdout)
+        sys.exit(0)
+
+    # list the targets and exit if requested.
+    if '--list-targets' in g_flags:
+        print("Supported targets:")
+        for target in Targets.supported_targets:
+            print(target)
+        sys.exit(0)
+
     # determine the input filename.
     if len(g_args) == 0:
         sys.stderr.write("Error: no input filename given.\n")
+        usage(sys.stderr)
         sys.exit(1)
     if len(g_args) > 1:
         sys.stderr.write("Error: only one input filename is currently supported, multiple given: %s\n" % g_args)
+        usage(sys.stderr)
         sys.exit(1)
     c_fname = g_args[0]
     sys.stderr.write(f"Input: {c_fname}\n")
@@ -106,7 +164,7 @@ if __name__ == "__main__":
     if status != 0:
         sys.exit(status)
 
-    # build the AST.
+    # build the C AST.
     c_ast = C.parse(i_fname)
     if '--c-ast' in g_flags:
         # dump the C AST and exit.
