@@ -6,24 +6,45 @@ from dataclasses import dataclass
 from jpcc import Targets
 
 
-# ASDL for the subset of ASM from chapter 1:
+# Nora Sandler's ASDL for the subset of ASM from chapter 1:
 #       program = Program(funcdef)
 #       funcdef = Function(identifier name, instruction* instructions)
 #   instruction = Mov(operand src, operand dst) | Ret
 #       operand = Imm(int) | Register
 
-# So for 'return_2.c', we want to make the following translation:
-#   C AST:             ->  ASM AST:
-#   ------                 --------
-#   Program(           ->  Program(
-#     Function(        ->    Function(
-#       name="main",   ->      name=Identifier("main"),
-#       body=Return(   ->      instructions=[
-#         Constant(2)  ->        Mov(Imm(2), RAX),
-#       )              ->        Ret()
-#     )                ->      ]
-#   )                  ->    )
-#                      ->  )
+# I use a slightly modified syntax and grammar:
+#        ASM_AST > Program | Function | Instruction | Operand | Identifier
+#        Program : Program(funcdef: Function)
+#       Function : Function(name: Identifier, instructions: list[Instruction])
+#    Instruction : Instruction(comment: str)
+#    Instruction > Instruction0 | Instruction2
+#   Instruction0 > Ret
+#   Instruction2 : Instruction2(src: Operand, dst: Operand)
+#   Instruction2 > Movl
+#        Operand > Imm | Register
+#            Imm : Imm(value: int)
+#       Register > RAX | RBX | ...
+#     Identifier : Identifier(value: str)
+
+
+# So for 'return-2.c':
+# 
+#   int main(void) {
+#       return 2;
+#   }
+#
+# we want to make the following translation:
+#   C AST:             |  ASM AST:
+#   ------             |  --------
+#   Program(           |  Program(
+#     Function(        |    Function(
+#       name="main",   |      name=Identifier("main"),
+#       body=Return(   |      instructions=[
+#         Constant(2)  |        Mov(Imm(2), RAX),
+#       )              |        Ret()
+#     )                |      ]
+#   )                  |    )
+#                      |  )
 
 # And then emit:
 #           .globl main
@@ -124,7 +145,7 @@ class Instruction(ASM_AST):
         return self.comment
 
 
-class InstructionArity0(Instruction):
+class Instruction0(Instruction):
     def gas(self) -> str:
         op = self.__class__.__name__.lower()
         line = f"\t{op}"
@@ -132,7 +153,7 @@ class InstructionArity0(Instruction):
         return line
 
 
-class InstructionArity2(Instruction):
+class Instruction2(Instruction):
     def __init__(self, *, src: Operand, dst: Operand, comment: str = None):
         self.src = src
         self.dst = dst
@@ -147,13 +168,13 @@ class InstructionArity2(Instruction):
         return line
 
 
-class Movl(InstructionArity2):
+class Movl(Instruction2):
     def get_comment(self) -> str:
         default = f"Copy {self.src.gas()} to {self.dst.gas()}."
         return coalesce(super().get_comment(), default)
 
 
-class Ret(InstructionArity0):
+class Ret(Instruction0):
     def get_comment(self) -> str:
         default = f"Jump to the return address."
         return coalesce(super().get_comment(), default)

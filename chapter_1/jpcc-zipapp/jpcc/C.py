@@ -12,19 +12,19 @@ except:
     sys.exit(1)
 
 
-# ASDL for the subset of C from chapter 1:
+# Nora Sandler's ASDL for the subset of C from chapter 1:
 #     program = Program(funcdef)
 #     funcdef = Function(identifier name, statement body)
 #   statement = Return(expr)
 #        expr = Constant(int)
 
-# EBNF for the subset of C from chapter 1:
-#      <program> ::= <function>
-#     <function> ::= "int" <identifier> "(" "void" ")" "{" <statement> "}"
-#    <statement> ::= "return" <expr> ";"
-#         <expr> ::= <int>
-#   <identifier> ::= ? An identifier token ?
-#          <int> ::= ? A constant token ?
+# I use a slightly modified grammar and syntax:
+#       C_AST > Program | Function | Statement | Constant
+#     Program : Program(funcdef: Function)
+#    Function : Function(name: str, body: Statement)
+#   Statement > Return(expr: Constant)
+#    Constant : Constant(value: int)
+
 
 class C_AST: pass
 
@@ -58,7 +58,7 @@ class Program(C_AST):
 #       return 2;
 #   }
 
-# pycparser AST for return_2.c:
+# pycparser AST for return-2.c:
 #   FileAST(
 #   .   ext[0] = FuncDef(  // line 1
 #   .   .   decl = Decl(
