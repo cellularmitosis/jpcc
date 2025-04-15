@@ -25,6 +25,7 @@ Cross-compilation:
 Observing AST's:
   --c-ast: print the C AST and exit.
   --asm-ast: print the ASM AST and exit.
+  --indent 4: control the indentation of ASTs.
 
 Flags for "Writing a C Compiler":
   --lex: stop after lexing.
@@ -84,7 +85,7 @@ def parse_command_line() -> tuple[set, dict, list]:
         '--list-targets',
     ])
     # options expect a argument:
-    option_names = set(['-o', '--target'])
+    option_names = set(['-o', '--target', '--indent'])
     flags = set()
     options = {}
     args = []
@@ -179,11 +180,15 @@ if __name__ == "__main__":
     if status != 0:
         sys.exit(status)
 
+    indent=4
+    if '--indent' in g_options:
+        indent = int(g_options['--indent'])
+
     # build the C AST.
     c_ast = C.parse(i_fname)
     if '--c-ast' in g_flags:
         # dump the C AST and exit.
-        print(Serialization.to_exprs_str(c_ast))
+        print(Serialization.to_exprs_str(c_ast, indent=indent))
         sys.exit(0)
     if '--lex' in g_flags or '--parse' in g_flags:
         # stop after lexing (or parsing).
@@ -193,7 +198,7 @@ if __name__ == "__main__":
     asm_ast = x86_64.gen_Program(c_ast)
     if '--asm-ast' in g_flags:
         # dump the ASM AST and exit.
-        print(Serialization.to_exprs_str(asm_ast))
+        print(Serialization.to_exprs_str(asm_ast, indent=indent))
         sys.exit(0)
     if '-S' in g_flags and '-o' in g_options:
         s_fname = g_options['-o']
