@@ -146,6 +146,7 @@ class Instruction(ASM_AST):
 
 
 class Instruction0(Instruction):
+    "An instruction of artiy 0."
     def gas(self) -> str:
         op = self.__class__.__name__.lower()
         line = f"\t{op}"
@@ -154,6 +155,7 @@ class Instruction0(Instruction):
 
 
 class Instruction2(Instruction):
+    "An instruction of artiy 2."
     def __init__(self, *, src: Operand, dst: Operand, comment: str = None):
         self.src = src
         self.dst = dst
@@ -248,8 +250,7 @@ def gen_Program(c_ast: C.Program) -> Program:
         return asm_ast
 
     assert(isinstance(c_ast, C.Program))
-    c_fn_ast = c_ast.funcdef
     asm_ast = Program(
-        gen_Function(c_fn_ast)
+        funcdef = gen_Function(c_ast.funcdef)
     )
     return asm_ast

@@ -22,7 +22,8 @@ except:
 #       C_AST > Program | Function | Statement | Constant
 #     Program : Program(funcdef: Function)
 #    Function : Function(name: str, body: Statement)
-#   Statement > Return(expr: Constant)
+#   Statement > Return
+#      Return : Return(expr: Constant)
 #    Constant : Constant(value: int)
 
 
@@ -93,14 +94,14 @@ class Program(C_AST):
 #   )
 
 
-def _c_pycp_ast(fname: str) -> C_AST:
-    "Use pycparser to parse a C file, returning the AST"
+def _c_pycp_ast(fname: str) -> pycparser.c_ast.Node:
+    "Use pycparser to parse a C file, returning the AST."
     c_ast = pycparser.parse_file(fname, use_cpp=False)
     return c_ast
 
 
 def _pycp_ast_to_ch1_ast(c_ast: pycparser.c_ast.Node) -> C_AST:
-    "Translate a pycparser AST into a chapter 1 AST"
+    "Translate a pycparser AST into a chapter 1 C AST."
     assert isinstance(c_ast, pycparser.c_ast.FileAST)
     funcdef = c_ast.ext[0]
     assert isinstance(funcdef, pycparser.c_ast.FuncDef)
@@ -126,7 +127,7 @@ def _pycp_ast_to_ch1_ast(c_ast: pycparser.c_ast.Node) -> C_AST:
 
 
 def parse(fname: str) -> C_AST:
-    "Parse a C file and return the chapter 1 AST"
+    "Parse a C file and return the chapter 1 C AST."
     pycp_ast = _c_pycp_ast(fname)
     ch1_ast = _pycp_ast_to_ch1_ast(pycp_ast)
     return ch1_ast

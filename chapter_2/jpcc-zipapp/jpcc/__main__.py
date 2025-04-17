@@ -4,6 +4,7 @@ import sys
 import os
 
 from jpcc import C
+from jpcc import TAC
 from jpcc import x86_64
 from jpcc import Targets
 from jpcc import Serialization
@@ -24,12 +25,14 @@ Cross-compilation:
 
 Observing AST's:
   --c-ast: print the C AST and exit.
+  --tac-ast: print the TAC AST and exit.
   --asm-ast: print the ASM AST and exit.
   --indent 4: control the indentation of ASTs.
 
 Flags for "Writing a C Compiler":
   --lex: stop after lexing.
   --parse: stop after parsing.
+  --tacky: stop after C to TACKY conversion.
   --codgen: stop after codegen.
 
 Environment variables:
@@ -76,11 +79,11 @@ def parse_command_line() -> tuple[set, dict, list]:
     flag_names = set([
         '--help',
         # flags for compatibility with test_compiler from github.com/nlsandler/writing-a-c-compiler-tests:
-        '--lex', '--parse', '--codgen',
+        '--lex', '--parse', '--tacky', '--codgen',
         # standard compiler flags:
         '-S', '-c',
         # serialization flags
-        '--c-ast', '--asm-ast',
+        '--c-ast', '--tac-ast', '--asm-ast',
         # cross-compilation flags
         '--list-targets',
     ])
@@ -194,8 +197,18 @@ if __name__ == "__main__":
         # stop after lexing (or parsing).
         sys.exit(0)
 
+    # translate C into TAC.
+    tac_ast = TAC.c_to_tac(c_ast)
+    if '--tac-ast' in g_flags:
+        # dump the TAC AST and exit.
+        print(Serialization.to_exprs_str(tac_ast, indent=indent))
+        sys.exit(0)
+    if '--tacky' in g_flags:
+        # stop after converting C to TACKY.
+        sys.exit(0)
+
     # generate assembly.
-    asm_ast = x86_64.gen_Program(c_ast)
+    asm_ast = x86_64.gen_Program(tac_ast)
     if '--asm-ast' in g_flags:
         # dump the ASM AST and exit.
         print(Serialization.to_exprs_str(asm_ast, indent=indent))
