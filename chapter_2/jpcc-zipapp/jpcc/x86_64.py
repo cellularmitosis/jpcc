@@ -17,24 +17,24 @@ from jpcc import Targets
 #       operand = Imm(int) | Reg(reg) | Pseudo(identifier) | Stack(int)
 #      reg = AX | R10
 
-# I use a slightly modified syntax and grammar:
-#        ASM_AST > Program | Function | Instruction | Operand | Identifier
-#        Program : Program(funcdef: Function)
-#       Function : Function(name: Identifier, instructions: list[Instruction])
+# I use a modified syntax and grammar:
+#        ASM_AST > Program | Statement | Operand | Fixup
+#        Program : Program(statements: list[Statement])
+#      Statement > Directive | LabelDef | Instruction | Comment
+#      Directive : Directive(name: str, content: str)
+#       LabelDef : LabelDef(name: str)
 #    Instruction : Instruction(comment: str)
-#    Instruction > Instruction0 | Instruction1 | Instruction2 | AllocateStack
+#    Instruction > Instruction0 | Instruction1 | Instruction2
 #   Instruction0 > Ret
-#   Instruction1 : Instruction1(srcdst: Operand)
-#   Instruction1 > Neg | Not
+#   Instruction1 : Instruction1(arg: Operand)
+#   Instruction1 > Pushq | Popq | Negl | Notl
 #   Instruction2 : Instruction2(src: Operand, dst: Operand)
-#   Instruction2 > Movl
-#  AllocateStack : AllocateStack(bytes: int)
-#        Operand > Imm | Register | Pseudo | Stack
+#   Instruction2 > Movl | Movq | Subq
+#        Operand > Imm | Register | Stack
 #            Imm : Imm(value: int)
 #       Register > RAX | RBX | ...
-#         Pseudo : Pseudo(name: Identifier)
 #          Stack : Stack(offset: int)
-#     Identifier : Identifier(value: str)
+#        Comment : Comment(comment: str)
 
 
 # So for return-comp-neg-2.c:
@@ -129,14 +129,13 @@ from jpcc import Targets
 #       name "main"
 #     )
 #     instructions (list
-#       AllocateStack
+#       Subq
 #       Neg
 #       Not
 #       Ret
 #     )
 #   )
 # )
-
 
 
 # And then emit:
@@ -165,31 +164,37 @@ tab_width = 8  # the visible width of a rendered tab character
 comment_col = 32  # the column at which comments should start.
 
 
-def coalesce(x, default_value):
-    "Return the default value if x is None"
+def _coalesce(x, default_value):
+    "Return the default value if x is None."
     return x if x is not None else default_value
 
 
-def vlen(s: str) -> int:
-    "Return the visible length of a string, assuming tabs are 8 wide"
+def _vlen(s: str) -> int:
+    "Return the visible length of a string, assuming tabs are 8 wide."
     return len(s) + (s.count('\t') * (tab_width - 1))
 
 
-def add_comment(stmt: str, comment: str) -> str:
+def _add_comment(stmt: str, comment: str, c_style: bool = False) -> str:
     "Add a comment to an ASM statement."
     if stmt is None:
         stmt = ""
     if comment is None:
         return stmt
-    pad = (comment_col - vlen(stmt)) * " "
-    # Note: '#' is the standard comment character for x86_64, but it appears
-    # that it does not work after a directive, e.g. '.globl main # comment'.
-    # However, '/* comment */' appears to work everywhere.
-    line = f"{stmt}{pad}/* {comment} */"
+    pad = (comment_col - _vlen(stmt)) * " "
+    if c_style:
+        # Note: '#' is the standard comment character for x86_64, but it appears
+        # that it does not work after a directive, e.g. '.globl main # comment'.
+        # However, '.globl main /* comment */' appears to work.
+        line = f"{stmt}{pad}/* {comment} */"
+    else:
+        line = f"{stmt}{pad}# {comment}"
     return line
 
 
 class ASM_AST: pass
+
+
+class Fixup(ASM_AST): pass
 
 
 class Operand(ASM_AST): pass
@@ -221,6 +226,15 @@ class RSI(Register): pass  # Source index
 # Other:
 class RIP(Register): pass  # Instruction pointer
 
+class R8(Register): pass
+class R9(Register): pass
+class R10(Register): pass
+class R11(Register): pass
+class R12(Register): pass
+class R13(Register): pass
+class R14(Register): pass
+class R15(Register): pass
+
 # 32-bit registers:
 class EAX(Register): pass
 class EBX(Register): pass
@@ -231,6 +245,14 @@ class EBP(Register): pass
 class EDI(Register): pass
 class ESI(Register): pass
 class EIP(Register): pass
+class R8D(Register): pass
+class R9D(Register): pass
+class R10D(Register): pass
+class R11D(Register): pass
+class R12D(Register): pass
+class R13D(Register): pass
+class R14D(Register): pass
+class R15D(Register): pass
 
 
 @dataclass
@@ -241,11 +263,28 @@ class Imm(Operand):
 
 
 @dataclass
-class Instruction(ASM_AST):
+class Stack(Operand):
+    offset: int
+    def gas(self) -> str:
+        return f"{self.offset}(%rbp)"
+
+
+@dataclass
+class Statement(ASM_AST):
     comment: str = None
     def get_comment(self) -> str:
-        "This getter allows instructions to provide a default comment."
+        "This getter allows statements to provide a default comment."
         return self.comment
+
+
+class Comment(Statement):
+    "A bare comment."
+    def gas(self) -> str:
+        line = _add_comment(None, self.comment)
+        return line
+
+
+class Instruction(Statement): pass
 
 
 class Instruction0(Instruction):
@@ -253,22 +292,51 @@ class Instruction0(Instruction):
     def gas(self) -> str:
         op = self.__class__.__name__.lower()
         line = f"\t{op}"
-        line = add_comment(line, self.get_comment())
+        line = _add_comment(line, self.get_comment())
         return line
+
+
+class Ret(Instruction0):
+    def get_comment(self) -> str:
+        default = f"Jump to the return address."
+        return _coalesce(super().get_comment(), default)
 
 
 class Instruction1(Instruction):
     "An instruction of artiy 1."
-    def __init__(self, *, srcdst: Operand, comment: str = None):
-        self.srcdst = srcdst
+    def __init__(self, arg: Operand, comment: str = None):
+        self.arg = arg
         self.comment = comment
 
     def gas(self) -> str:
         op = self.__class__.__name__.lower()
-        srcdst_str = self.srcdst.gas()
-        line = f"\t{op} {srcdst_str}"
-        line = add_comment(line, self.get_comment())
+        line = f"\t{op} {self.arg.gas()}"
+        line = _add_comment(line, self.get_comment())
         return line
+
+
+class Pushq(Instruction1):
+    def get_comment(self) -> str:
+        default = f"Copy {self.arg.gas()} on the stack and decrement %rsp."
+        return _coalesce(super().get_comment(), default)
+
+
+class Popq(Instruction1):
+    def get_comment(self) -> str:
+        default = f"Copy the top of the stack into {self.arg.gas()} and increment %rsp."
+        return _coalesce(super().get_comment(), default)
+
+
+class Negl(Instruction1):
+    def get_comment(self) -> str:
+        default = f"Negate {self.arg.gas()}."
+        return _coalesce(super().get_comment(), default)
+
+
+class Notl(Instruction1):
+    def get_comment(self) -> str:
+        default = f"Flip all of the bits of {self.arg.gas()}."
+        return _coalesce(super().get_comment(), default)
 
 
 class Instruction2(Instruction):
@@ -283,128 +351,199 @@ class Instruction2(Instruction):
         src_str = self.src.gas()
         dst_str = self.dst.gas()
         line = f"\t{op} {src_str}, {dst_str}"
-        line = add_comment(line, self.get_comment())
+        line = _add_comment(line, self.get_comment())
         return line
-
-
-class Ret(Instruction0):
-    def get_comment(self) -> str:
-        default = f"Jump to the return address."
-        return coalesce(super().get_comment(), default)
-
-
-class Neg(Instruction1):
-    def get_comment(self) -> str:
-        default = f"Negate the value."
-        return coalesce(super().get_comment(), default)
-
-
-class Not(Instruction1):
-    def get_comment(self) -> str:
-        default = f"Flip all of the bits."
-        return coalesce(super().get_comment(), default)
 
 
 class Movl(Instruction2):
     def get_comment(self) -> str:
+        default = f"Copy (32-bit) {self.src.gas()} to {self.dst.gas()}."
+        return _coalesce(super().get_comment(), default)
+
+
+class Movq(Instruction2):
+    def get_comment(self) -> str:
         default = f"Copy {self.src.gas()} to {self.dst.gas()}."
-        return coalesce(super().get_comment(), default)
+        return _coalesce(super().get_comment(), default)
 
 
-class AllocateStack(Instruction):
-    "Increase the stack pointer by the given number of bytes."
-    def __init__(self, *, bytes: int):
-        self.bytes = bytes
+class Subq(Instruction2):
+    def get_comment(self) -> str:
+        default = f"Subtract {self.src.gas()} from {self.dst.gas()} into {self.dst.gas()}"
+        return _coalesce(super().get_comment(), default)
+
+
+def _format_label(label: str) -> str:
+    match Targets.current_target.os:
+        case "darwin":
+            return f"_{label}"
+        case _:
+            return label
+
+
+@dataclass
+class LabelDef(Statement):
+    def __init__(self, name: str, comment: str = None):
+        self.name = name
+        self.comment = comment
 
     def gas(self) -> str:
-        op = self.__class__.__name__.lower()
-        srcdst_str = self.srcdst.gas()
-        line = f"\t{op} {srcdst_str}"
-        line = add_comment(line, self.get_comment())
+        line = f"{_format_label(self.name)}:"
+        line = _add_comment(line, self.get_comment())
         return line
 
 
-    def get_comment(self) -> str:
-        default = f"Copy {self.src.gas()} to {self.dst.gas()}."
-        return coalesce(super().get_comment(), default)
-
-
 @dataclass
-class Identifier(ASM_AST):
-    value: str
-
-
-@dataclass
-class Function(ASM_AST):
-    name: Identifier
-    instructions: list[Instruction]
+class Directive(Statement):
+    def __init__(self, name: str, content: str = None, comment: str = None):
+        self.name = name
+        self.content = content
+        self.comment = comment
 
     def gas(self) -> str:
-        def make_label(fn_name: str) -> str:
-            match Targets.current_target.os:
-                case "darwin":
-                    return f"_{fn_name}"
-                case _:
-                    return fn_name
-        lines = []
-        label = make_label(self.name)
-        globl_stmt = add_comment(
-            f"\t.globl {label}",
-            f"Make {label} globally visible."
-        )
-        lines.append(globl_stmt)
-        label_stmt = add_comment(
-            f"{label}:",
-            f"Begin function {self.name}."
-        )
-        lines.append(label_stmt)
-        for instruction in self.instructions:
-            lines.append(instruction.gas())
-        asm_text = '\n'.join(lines) + '\n'
-        return asm_text
+        if self.content is None:
+            line = f"\t{self.name}"
+        else:
+            line = f"\t{self.name} {self.content}"
+        line = _add_comment(line, self.get_comment(), c_style=True)
+        return line
 
 
 @dataclass
 class Program(ASM_AST):
-    funcdef: Function
-    def gas(self):
-        return self.funcdef.gas()
+    statements: list[Statement]
+    def gas(self) -> str:
+        return "\n".join([s.gas() for s in self.statements]) + "\n"
 
 
 from jpcc import TAC
 
+def _lowest_offset(symbol_table: dict) -> int:
+    "Find the lowest offset in the symbol table."
+    lowest = 0
+    for k, v in symbol_table.items():
+        if v.offset < lowest:
+            lowest = v.offset
+    return lowest
+
+
+def _get_symbol(symbol: str, symbol_table: dict):
+    "Return the Stack() location of the symbol, adding it to the table if needed."
+    assert isinstance(symbol, str), symbol
+    if symbol not in symbol_table:
+        lowest = _lowest_offset(symbol_table)
+        symbol_table[symbol] = Stack(lowest - 8)
+    return symbol_table[symbol]
+
+
 def gen_Program(tac_ast: TAC.Program) -> Program:
-    "Generate assembly for a TAC.Program"
-
-    def gen_Function(tac_fn_ast: TAC.Function) -> Function:
-        "Generate assembly for a TAC.Function"
-        asm_instructions = [AllocateStack()]
-        assert(isinstance(tac_fn_ast, TAC.Function))
-        assert(isinstance(tac_fn_ast.body, list))
-        for tac_inst in tac_fn_ast.body:
-            match tac_inst:
-                case TAC.Unary():
-                case TAC.Return():
-                case _:
-                    raise Exception(f"Unreachable")
-        tac_ret_ast = tac_fn_ast.body
-        tac_expr_ast = tac_ret_ast.expr
-        assert(isinstance(tac_expr_ast, TAC.Constant))
-        asm_ast = Function(
-            name = tac_fn_ast.name,
-            instructions = [
-                Movl(
-                    src = Imm(tac_expr_ast.value),
-                    dst = EAX(),
-                    comment = f"Return value = {tac_expr_ast.value}."
-                ),
-                Ret(),
-            ]
-        )
-        return asm_ast
-
+    "Generate assembly for a TAC.Program."
     assert(isinstance(tac_ast, TAC.Program))
     asm_ast = Program(
-        funcdef = gen_Function(tac_ast.funcdef)
+        statements = _gen_Function(tac_ast.funcdef)
     )
     return asm_ast
+
+
+def _gen_Function(tac_fn_ast: TAC.Function) -> list[Statement]:
+    "Generate assembly for a TAC.Function."
+    assert(isinstance(tac_fn_ast, TAC.Function))
+    statements = []
+    funcname = tac_fn_ast.name
+
+    # declare the function.
+    funclabel = _format_label(funcname)
+    statements += [
+        Directive(".globl", funclabel, f"Make {funclabel} externally visible."),
+        LabelDef(funcname, f"Begin function {funcname}.")
+    ]
+
+    # function prologue.
+    statements += [
+        Pushq(RBP(), "Save the caller's base pointer."),
+        Movq(src=RSP(), dst=RBP(), comment="Start a new stack frame."),
+    ]
+    allocate_stack = Subq(src=Fixup(), dst=RSP(), comment=Fixup())
+    statements.append(allocate_stack)
+
+    # function body.
+    assert(isinstance(tac_fn_ast.body, list))
+    symbol_table = {}
+    for tac_inst in tac_fn_ast.body:
+        statements += _gen_Instruction(tac_inst, symbol_table)
+
+    # fixup the stack allocation.
+    lowest = _lowest_offset(symbol_table)
+    allocate_stack.src = Stack(lowest)
+    allocate_stack.comment = f"Allocate {lowest * -1} bytes on the stack for locals."
+
+    statements += [Comment(f"End function {funcname}.")]
+    return statements
+
+
+
+def _gen_Instruction(tac_ast: TAC.Instruction, symbol_table: dict) -> list[Statement]:
+    "Generate assembly for a TAC.Instruction."
+    assert isinstance(tac_ast, TAC.Instruction)
+    statements = []
+    match tac_ast:
+        case TAC.Unary():
+            return _gen_Unary(tac_ast, symbol_table)
+        case TAC.Return():
+            return _gen_Return(tac_ast, symbol_table)
+        case _:
+            raise Exception(f"Unreachable")
+    return statements
+
+
+def _gen_Unary(tac_ast: TAC.Unary, symbol_table: dict) -> list[Statement]:
+    "Generate assembly for a TAC.Unary."
+    assert isinstance(tac_ast, TAC.Unary)
+    statements = []
+    match tac_ast:
+        case TAC.Unary(op, tac_src, tac_dst):
+            match tac_src:
+                case TAC.Constant() as con:
+                    src = Imm(con.value)
+                case TAC.Var() as var:
+                    src = _get_symbol(var.name, symbol_table)
+                case _:
+                    raise Exception(f"Unreachable")
+            dst = _get_symbol(tac_dst.name, symbol_table)
+            # pretend this is a load-store architecture.
+            # load the src into a register.
+            statements += [Movl(src=src, dst=R11D(), comment="Load.")]
+            # perform the unary operation on the register.
+            match op:
+                case TAC.Complement():
+                    statements += [Notl(R11D())]
+                case TAC.Negate():
+                    statements += [Negl(R11D())]
+                case _:
+                    raise Exception(f"Unreachable")
+            # store the register into dst.
+            statements += [Movl(src=R11D(), dst=dst, comment="Store.")]
+        case _:
+            raise Exception(f"Unreachable")
+    return statements
+
+
+def _gen_Return(tac_ast: TAC.Return, symbol_table: dict) -> list[Statement]:
+    "Generate assembly for a TAC.Return."
+    assert isinstance(tac_ast, TAC.Return)
+    arg = tac_ast.val
+    assert isinstance(arg, TAC.Operand)
+    match arg:
+        case TAC.Constant() as con:
+            src = Imm(con.value)
+        case TAC.Var() as var:
+            src = _get_symbol(var.name, symbol_table)
+        case _:
+            raise Exception(f"Unreachable")
+    statements = [
+        Movl(src=src, dst=EAX(), comment=f"Use {src.gas()} as the return value."),
+        Movq(src=RBP(), dst=RSP(), comment="Tear down the stack frame."),
+        Popq(RBP(), "Restore the caller's base pointer."),
+        Ret(comment="Jump to the return address."),
+    ]
+    return statements

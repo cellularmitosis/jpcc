@@ -62,23 +62,23 @@ tab_width = 8  # the visible width of a rendered tab character
 comment_col = 32  # the column at which comments should start.
 
 
-def coalesce(x, default_value):
+def _coalesce(x, default_value):
     "Return the default value if x is None"
     return x if x is not None else default_value
 
 
-def vlen(s: str) -> int:
+def _vlen(s: str) -> int:
     "Return the visible length of a string, assuming tabs are 8 wide"
     return len(s) + (s.count('\t') * (tab_width - 1))
 
 
-def add_comment(stmt: str, comment: str) -> str:
+def _add_comment(stmt: str, comment: str) -> str:
     "Add a comment to an ASM statement."
     if stmt is None:
         stmt = ""
     if comment is None:
         return stmt
-    pad = (comment_col - vlen(stmt)) * " "
+    pad = (comment_col - _vlen(stmt)) * " "
     # Note: '#' is the standard comment character for x86_64, but it appears
     # that it does not work after a directive, e.g. '.globl main # comment'.
     # However, '/* comment */' appears to work everywhere.
@@ -150,7 +150,7 @@ class Instruction0(Instruction):
     def gas(self) -> str:
         op = self.__class__.__name__.lower()
         line = f"\t{op}"
-        line = add_comment(line, self.get_comment())
+        line = _add_comment(line, self.get_comment())
         return line
 
 
@@ -166,20 +166,20 @@ class Instruction2(Instruction):
         src_str = self.src.gas()
         dst_str = self.dst.gas()
         line = f"\t{op} {src_str}, {dst_str}"
-        line = add_comment(line, self.get_comment())
+        line = _add_comment(line, self.get_comment())
         return line
 
 
 class Movl(Instruction2):
     def get_comment(self) -> str:
         default = f"Copy {self.src.gas()} to {self.dst.gas()}."
-        return coalesce(super().get_comment(), default)
+        return _coalesce(super().get_comment(), default)
 
 
 class Ret(Instruction0):
     def get_comment(self) -> str:
         default = f"Jump to the return address."
-        return coalesce(super().get_comment(), default)
+        return _coalesce(super().get_comment(), default)
 
 
 @dataclass
@@ -201,12 +201,12 @@ class Function(ASM_AST):
                     return fn_name
         lines = []
         label = make_label(self.name)
-        globl_stmt = add_comment(
+        globl_stmt = _add_comment(
             f"\t.globl {label}",
             f"Make {label} globally visible."
         )
         lines.append(globl_stmt)
-        label_stmt = add_comment(
+        label_stmt = _add_comment(
             f"{label}:",
             f"Begin function {self.name}."
         )
@@ -220,7 +220,7 @@ class Function(ASM_AST):
 @dataclass
 class Program(ASM_AST):
     funcdef: Function
-    def gas(self):
+    def gas(self) -> str:
         return self.funcdef.gas()
 
 

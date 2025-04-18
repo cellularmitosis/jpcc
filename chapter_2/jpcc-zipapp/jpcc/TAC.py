@@ -206,7 +206,7 @@ def _translate_Statement(c_ast: C.Statement) -> list[Instruction]:
             instructions += [Return(Constant(con.value))]
         case C.Return(C.Unary() as un):
             (expr_instructions, last_tmp) = _translate_Expression(un)
-            instructions += [*expr_instructions, Return(Var(last_tmp))]
+            instructions += [*expr_instructions, Return(last_tmp)]
         case _:
             raise Exception("Unreachable")
     return instructions
