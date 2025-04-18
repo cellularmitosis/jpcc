@@ -98,15 +98,15 @@ class Program(TAC_AST):
 #       expr (Unary        |       (Unary
 #         op (Complement)  |         op Negate
 #         expr (Unary      |         src (Constant 2)
-#           op (Negate)    |         dst (Var "tac0")
+#           op (Negate)    |         dst (Var "tmp0")
 #           expr (Constant |       )
 #             value 2      |       (Unary
 #           )              |         op Complement
-#         )                |         src (Var "tac0")
-#       )                  |         dst (Var "tac1")
+#         )                |         src (Var "tmp0")
+#       )                  |         dst (Var "tmp1")
 #     )                    |       )
 #   )                      |       (Return
-# )                        |         (Var "tac1")
+# )                        |         (Var "tmp1")
 #                          |       )
 #                          |     )
 #                          |   )

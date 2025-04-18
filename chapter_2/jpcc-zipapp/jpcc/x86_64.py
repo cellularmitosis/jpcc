@@ -18,23 +18,34 @@ from jpcc import Targets
 #      reg = AX | R10
 
 # I use a slightly modified syntax and grammar:
-# FIXME
 #        ASM_AST > Program | Function | Instruction | Operand | Identifier
 #        Program : Program(funcdef: Function)
 #       Function : Function(name: Identifier, instructions: list[Instruction])
 #    Instruction : Instruction(comment: str)
-#    Instruction > Instruction0 | Instruction2
+#    Instruction > Instruction0 | Instruction1 | Instruction2 | AllocateStack
 #   Instruction0 > Ret
+#   Instruction1 : Instruction1(srcdst: Operand)
+#   Instruction1 > Neg | Not
 #   Instruction2 : Instruction2(src: Operand, dst: Operand)
 #   Instruction2 > Movl
-#        Operand > Imm | Register
+#  AllocateStack : AllocateStack(bytes: int)
+#        Operand > Imm | Register | Pseudo | Stack
 #            Imm : Imm(value: int)
 #       Register > RAX | RBX | ...
+#         Pseudo : Pseudo(name: Identifier)
+#          Stack : Stack(offset: int)
 #     Identifier : Identifier(value: str)
 
 
-# So for 'return_2.c', we want to make the following translation:
-#   C AST:             ->  ASM AST:
+# So for return-comp-neg-2.c:
+#
+#   int main(void) {
+#       return ~(-2);
+#   }
+#
+# we want to make the following translation:
+#
+#   TAC AST:           ->  ASM AST:
 #   ------                 --------
 #   Program(           ->  Program(
 #     Function(        ->    Function(
@@ -45,6 +56,88 @@ from jpcc import Targets
 #     )                ->      ]
 #   )                  ->    )
 #                      ->  )
+
+# And then emit:
+#     .globl main
+# main:
+
+# prolog
+#     pushq %rbp
+#     movq %rsp, %rbp
+
+# allocate stack
+#     subq $8, %rsp
+
+# neg
+#     movl $2, -4(%rbp)
+#     negl -4(%rbp)
+
+# not
+#     movl -4(%rbp), %r10d
+#     movl %r10d, -8(%rbp)
+#     notl -8(%rbp)
+
+# return value
+#     movl -8(%rbp), %eax
+
+# epilog
+#     movq %rbp, %rsp
+#     popq %rbp
+#     ret
+
+
+#   TAC AST:
+#   --------
+#   (Program
+#     funcdef (Function
+#       name "main"
+#       body (list
+#         (Unary
+#           op (Negate)
+#           src (Constant
+#             value 2
+#           )
+#           dst (Var
+#             name "tmp0"
+#           )
+#         )
+#         (Unary
+#           op (Complement)
+#           src (Var
+#             name "tmp0"
+#           )
+#           dst (Var
+#             name "tmp1"
+#           )
+#         )
+#         (Return
+#           val (Var
+#             name (Var
+#               name "tmp1"
+#             )
+#           )
+#         )
+#       )
+#     )
+#   )
+
+# ASM AST (FIXME)
+# -------
+# (Program
+#   funcdef (Function
+#     name (Identifier
+#       name "main"
+#     )
+#     instructions (list
+#       AllocateStack
+#       Neg
+#       Not
+#       Ret
+#     )
+#   )
+# )
+
+
 
 # And then emit:
 #     .globl main
@@ -164,6 +257,20 @@ class Instruction0(Instruction):
         return line
 
 
+class Instruction1(Instruction):
+    "An instruction of artiy 1."
+    def __init__(self, *, srcdst: Operand, comment: str = None):
+        self.srcdst = srcdst
+        self.comment = comment
+
+    def gas(self) -> str:
+        op = self.__class__.__name__.lower()
+        srcdst_str = self.srcdst.gas()
+        line = f"\t{op} {srcdst_str}"
+        line = add_comment(line, self.get_comment())
+        return line
+
+
 class Instruction2(Instruction):
     "An instruction of artiy 2."
     def __init__(self, *, src: Operand, dst: Operand, comment: str = None):
@@ -180,15 +287,45 @@ class Instruction2(Instruction):
         return line
 
 
+class Ret(Instruction0):
+    def get_comment(self) -> str:
+        default = f"Jump to the return address."
+        return coalesce(super().get_comment(), default)
+
+
+class Neg(Instruction1):
+    def get_comment(self) -> str:
+        default = f"Negate the value."
+        return coalesce(super().get_comment(), default)
+
+
+class Not(Instruction1):
+    def get_comment(self) -> str:
+        default = f"Flip all of the bits."
+        return coalesce(super().get_comment(), default)
+
+
 class Movl(Instruction2):
     def get_comment(self) -> str:
         default = f"Copy {self.src.gas()} to {self.dst.gas()}."
         return coalesce(super().get_comment(), default)
 
 
-class Ret(Instruction0):
+class AllocateStack(Instruction):
+    "Increase the stack pointer by the given number of bytes."
+    def __init__(self, *, bytes: int):
+        self.bytes = bytes
+
+    def gas(self) -> str:
+        op = self.__class__.__name__.lower()
+        srcdst_str = self.srcdst.gas()
+        line = f"\t{op} {srcdst_str}"
+        line = add_comment(line, self.get_comment())
+        return line
+
+
     def get_comment(self) -> str:
-        default = f"Jump to the return address."
+        default = f"Copy {self.src.gas()} to {self.dst.gas()}."
         return coalesce(super().get_comment(), default)
 
 
@@ -234,33 +371,40 @@ class Program(ASM_AST):
         return self.funcdef.gas()
 
 
-from jpcc import C
+from jpcc import TAC
 
-def gen_Program(c_ast: C.Program) -> Program:
-    "Generate assembly for a C.Program"
+def gen_Program(tac_ast: TAC.Program) -> Program:
+    "Generate assembly for a TAC.Program"
 
-    def gen_Function(c_fn_ast: C.Function) -> Function:
-        "Generate assembly for a C.Function"
-        assert(isinstance(c_fn_ast, C.Function))
-        c_ret_ast = c_fn_ast.body
-        assert(isinstance(c_ret_ast, C.Return))
-        c_expr_ast = c_ret_ast.expr
-        assert(isinstance(c_expr_ast, C.Constant))
+    def gen_Function(tac_fn_ast: TAC.Function) -> Function:
+        "Generate assembly for a TAC.Function"
+        asm_instructions = [AllocateStack()]
+        assert(isinstance(tac_fn_ast, TAC.Function))
+        assert(isinstance(tac_fn_ast.body, list))
+        for tac_inst in tac_fn_ast.body:
+            match tac_inst:
+                case TAC.Unary():
+                case TAC.Return():
+                case _:
+                    raise Exception(f"Unreachable")
+        tac_ret_ast = tac_fn_ast.body
+        tac_expr_ast = tac_ret_ast.expr
+        assert(isinstance(tac_expr_ast, TAC.Constant))
         asm_ast = Function(
-            name = c_fn_ast.name,
+            name = tac_fn_ast.name,
             instructions = [
                 Movl(
-                    src = Imm(c_expr_ast.value),
+                    src = Imm(tac_expr_ast.value),
                     dst = EAX(),
-                    comment = f"Return value = {c_expr_ast.value}."
+                    comment = f"Return value = {tac_expr_ast.value}."
                 ),
                 Ret(),
             ]
         )
         return asm_ast
 
-    assert(isinstance(c_ast, C.Program))
+    assert(isinstance(tac_ast, TAC.Program))
     asm_ast = Program(
-        funcdef = gen_Function(c_ast.funcdef)
+        funcdef = gen_Function(tac_ast.funcdef)
     )
     return asm_ast
