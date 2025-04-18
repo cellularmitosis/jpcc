@@ -3,11 +3,11 @@
 import sys
 import os
 
-from jpcc import C
-from jpcc import TAC
-from jpcc import x86_64
-from jpcc import Targets
-from jpcc import Serialization
+from jpcc import pycp_to_c
+from jpcc import c_to_tac
+from jpcc import tac_to_amd64
+from jpcc import targets
+from jpcc import serialization
 
 
 def usage(fd):
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     # list the targets and exit if requested.
     if '--list-targets' in g_flags:
         print("Supported targets:")
-        for target in Targets.supported_targets:
+        for target in targets.supported_targets:
             print(target)
         sys.exit(0)
 
@@ -148,7 +148,9 @@ if __name__ == "__main__":
         usage(sys.stderr)
         sys.exit(1)
     if len(g_args) > 1:
-        sys.stderr.write("Error: only one input filename is currently supported, multiple given: %s\n" % g_args)
+        sys.stderr.write(
+            "Error: only one input filename is currently supported, multiple given: %s\n" % g_args
+        )
         usage(sys.stderr)
         sys.exit(1)
     c_fname = g_args[0]
@@ -156,12 +158,12 @@ if __name__ == "__main__":
 
     # determine the target.
     if '--target' in g_options:
-        target = Targets.Target.from_str(g_options['--target'])
-        if target not in Targets.supported_targets:
+        target = targets.Target.from_str(g_options['--target'])
+        if target not in targets.supported_targets:
             sys.stderr.write(f"Error: target '{target}' not supported.\n")
             sys.exit(1)
-        Targets.current_target = target
-    sys.stderr.write(f"Target: {Targets.current_target}\n")
+        targets.current_target = target
+    sys.stderr.write(f"Target: {targets.current_target}\n")
 
     # find a compiler for preprocessing and final machine code output.
     if "CC" in os.environ:
@@ -183,35 +185,35 @@ if __name__ == "__main__":
     if status != 0:
         sys.exit(status)
 
-    indent=4
+    indent=3
     if '--indent' in g_options:
         indent = int(g_options['--indent'])
 
     # build the C AST.
-    c_ast = C.parse(i_fname)
+    c_ast = pycp_to_c.parse(i_fname)
     if '--c-ast' in g_flags:
         # dump the C AST and exit.
-        print(Serialization.to_exprs_str(c_ast, indent=indent))
+        print(serialization.to_exprs_str(c_ast, indent=indent))
         sys.exit(0)
     if '--lex' in g_flags or '--parse' in g_flags:
         # stop after lexing (or parsing).
         sys.exit(0)
 
     # translate C into TAC.
-    tac_ast = TAC.c_to_tac(c_ast)
+    tac_ast = c_to_tac.c_to_tac(c_ast)
     if '--tac-ast' in g_flags:
         # dump the TAC AST and exit.
-        print(Serialization.to_exprs_str(tac_ast, indent=indent))
+        print(serialization.to_exprs_str(tac_ast, indent=indent))
         sys.exit(0)
     if '--tacky' in g_flags:
         # stop after converting C to TACKY.
         sys.exit(0)
 
     # generate assembly.
-    asm_ast = x86_64.gen_Program(tac_ast)
+    asm_ast = tac_to_amd64.gen_Program(tac_ast)
     if '--asm-ast' in g_flags:
         # dump the ASM AST and exit.
-        print(Serialization.to_exprs_str(asm_ast, indent=indent))
+        print(serialization.to_exprs_str(asm_ast, indent=indent))
         sys.exit(0)
     if '-S' in g_flags and '-o' in g_options:
         s_fname = g_options['-o']
@@ -240,7 +242,7 @@ if __name__ == "__main__":
         if '-c' in g_flags:
             bin_fname += '.o'
     cc_flags = f"{c_flag}"
-    envarname = f"JPCC_{Targets.current_target}_SSH_HOST"
+    envarname = f"JPCC_{targets.current_target}_SSH_HOST"
     if envarname in os.environ:
         # use SSH to run gcc on a remote host.
         # note: using persistent SSH connections can greatly improve
@@ -255,7 +257,7 @@ if __name__ == "__main__":
         sys.stderr.write(f"{envarname}: {host}\n")
 
         remote_cc = "gcc"
-        envarname = f"JPCC_{Targets.current_target}_SSH_CC"
+        envarname = f"JPCC_{targets.current_target}_SSH_CC"
         if envarname in os.environ:
             remote_cc = os.environ[envarname]
             sys.stderr.write(f"{envarname}: {remote_cc}\n")

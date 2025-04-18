@@ -3,74 +3,6 @@
 
 from dataclasses import dataclass
 
-
-# Nora Sandler's ASDL for TAC from chapter 2:
-#       program = Program(funcdef)
-#       funcdef = Function(identifier name, instruction* body)
-#   instruction = Return(val) | Unary(unaryop, val src, val dst)
-#           val = Constant(int) | Var(identifier)
-#       unaryop = Complement | Negate
-
-# I use a slightly modified grammar and syntax:
-#         TAC_AST > Program | Function | Instruction | Operand | UnaryOperator
-#         Program : Program(funcdef: Function)
-#        Function : Function(name: str, body: list[Instruction])
-#     Instruction > Unary | Return
-#         Operand > Constant | Var
-#        Constant : Constant(value: int)
-#             Var : Var(name: str)
-#           Unary : Unary(op: UnaryOperator, src: Operand, dst: Operand)
-#          Return : Return(val: Operand)
-#   UnaryOperator > Complement | Negate
-
-
-class TAC_AST: pass
-
-
-class Operand(TAC_AST):  pass
-
-
-@dataclass
-class Constant(Operand):
-    value: int
-
-
-@dataclass
-class Var(Operand):
-    name: str
-
-
-class Instruction(TAC_AST): pass
-
-
-class UnaryOperator(TAC_AST): pass
-class Complement(UnaryOperator): pass
-class Negate(UnaryOperator): pass
-
-
-@dataclass
-class Unary(Instruction):
-    op: UnaryOperator
-    src: Operand
-    dst: Operand
-
-
-@dataclass
-class Return(Instruction):
-    val: Operand
-
-
-@dataclass
-class Function(TAC_AST):
-    name: str
-    body: list[Instruction]
-
-
-@dataclass
-class Program(TAC_AST):
-    funcdef: Function
-
-
 # So for return-comp-neg-2.c:
 #
 #   int main(void) {
@@ -163,7 +95,8 @@ class Program(TAC_AST):
 #   Return("tmp2")
 
 
-from jpcc import C
+from jpcc import tac
+from jpcc import c
 
 
 @dataclass
@@ -172,74 +105,74 @@ class State:
 
 g_state = State()
 
-def _next_tmp(state=g_state) -> str:
+def _next_tmp(state=g_state) -> tac.Var:
     "Claim the next tmp number and return a tmp Var."
     varname = f"tmp{state.nextTmp}"
     state.nextTmp += 1
-    return Var(varname)
+    return tac.Var(varname)
 
 
-def c_to_tac(c_ast: C.Program) -> Program:
+def c_to_tac(c_ast: c.Program) -> tac.Program:
     "Translate from a C AST to a TAC AST."
     return _translate_Program(c_ast)
 
 
-def _translate_Program(c_ast: C.Program) -> Program:
-    assert isinstance(c_ast, C.Program)
+def _translate_Program(c_ast: c.Program) -> tac.Program:
+    assert isinstance(c_ast, c.Program)
     funcdef = _translate_Function(c_ast.funcdef)
-    return Program(funcdef)
+    return tac.Program(funcdef)
 
 
-def _translate_Function(c_ast: C.Function) -> Function:
-    assert isinstance(c_ast, C.Function)
+def _translate_Function(c_ast: c.Function) -> tac.Function:
+    assert isinstance(c_ast, c.Function)
     name = c_ast.name
     body = _translate_Statement(c_ast.body)
-    return Function(name, body)
+    return tac.Function(name, body)
 
 
-def _translate_Statement(c_ast: C.Statement) -> list[Instruction]:
-    assert isinstance(c_ast, C.Statement)
-    assert isinstance(c_ast, C.Return)
+def _translate_Statement(c_ast: c.Statement) -> list[tac.Instruction]:
+    assert isinstance(c_ast, c.Statement)
+    assert isinstance(c_ast, c.Return)
     instructions = []
     match c_ast:
-        case C.Return(C.Constant() as con):
-            instructions += [Return(Constant(con.value))]
-        case C.Return(C.Unary() as un):
+        case c.Return(c.Constant() as con):
+            instructions += [tac.Return(tac.Constant(con.value))]
+        case c.Return(c.Unary() as un):
             (expr_instructions, last_tmp) = _translate_Expression(un)
-            instructions += [*expr_instructions, Return(last_tmp)]
+            instructions += [*expr_instructions, tac.Return(last_tmp)]
         case _:
             raise Exception("Unreachable")
     return instructions
 
 
-def _translate_UnaryOperator(c_ast: C.UnaryOperator) -> UnaryOperator:
-    assert isinstance(c_ast, C.UnaryOperator)
+def _translate_UnaryOperator(c_ast: c.UnaryOperator) -> tac.UnaryOperator:
+    assert isinstance(c_ast, c.UnaryOperator)
     match c_ast:
-        case C.Complement(): return Complement()
-        case C.Negate(): return Negate()
+        case c.Complement(): return tac.Complement()
+        case c.Negate(): return tac.Negate()
         case _: raise Exception("Unreachable")
 
 
-def _translate_Constant(c_ast: C.Constant) -> UnaryOperator:
-    assert isinstance(c_ast, C.Constant)
-    return Constant(c_ast.value)
+def _translate_Constant(c_ast: c.Constant) -> tac.UnaryOperator:
+    assert isinstance(c_ast, c.Constant)
+    return tac.Constant(c_ast.value)
 
 
-def _translate_Expression(c_ast: C.Expression) -> tuple[list[Instruction],str]:
-    "Translate a C.Expression, returning a list of expressions and the name of the last temporary."
+def _translate_Expression(c_ast: c.Expression) -> tuple[list[tac.Instruction],str]:
+    "Translate a c.Expression, returning a list of expressions and the name of the last temporary."
     match c_ast:
-        case C.Unary(op, C.Constant() as con):
+        case c.Unary(op, c.Constant() as con):
             dst = _next_tmp()
-            instructions = [Unary(
+            instructions = [tac.Unary(
                 op = _translate_UnaryOperator(op),
                 src = _translate_Constant(con),
                 dst = dst,
             )]
             return (instructions, dst)
-        case C.Unary(op, C.Unary() as inner_un):
+        case c.Unary(op, c.Unary() as inner_un):
             (instructions, inner_tmp) = _translate_Expression(inner_un)
             dst = _next_tmp()
-            instructions += [Unary(
+            instructions += [tac.Unary(
                 op = _translate_UnaryOperator(op),
                 src = inner_tmp,
                 dst = dst,

@@ -3,8 +3,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from jpcc import Targets
-
 
 # Nora Sandler's ASDL for the subset of ASM from chapter 2:
 #       program = Program(funcdef)
@@ -36,129 +34,18 @@ from jpcc import Targets
 #          Stack : Stack(offset: int)
 #        Comment : Comment(comment: str)
 
-
-# So for return-comp-neg-2.c:
-#
-#   int main(void) {
-#       return ~(-2);
-#   }
-#
-# we want to make the following translation:
-#
-#   TAC AST:           ->  ASM AST:
-#   ------                 --------
-#   Program(           ->  Program(
-#     Function(        ->    Function(
-#       name="main",   ->      name=Identifier("main"),
-#       body=Return(   ->      instructions=[
-#         Constant(2)  ->        Mov(Imm(2), RAX),
-#       )              ->        Ret()
-#     )                ->      ]
-#   )                  ->    )
-#                      ->  )
-
-# And then emit:
-#     .globl main
-# main:
-
-# prolog
-#     pushq %rbp
-#     movq %rsp, %rbp
-
-# allocate stack
-#     subq $8, %rsp
-
-# neg
-#     movl $2, -4(%rbp)
-#     negl -4(%rbp)
-
-# not
-#     movl -4(%rbp), %r10d
-#     movl %r10d, -8(%rbp)
-#     notl -8(%rbp)
-
-# return value
-#     movl -8(%rbp), %eax
-
-# epilog
-#     movq %rbp, %rsp
-#     popq %rbp
-#     ret
-
-
-#   TAC AST:
-#   --------
-#   (Program
-#     funcdef (Function
-#       name "main"
-#       body (list
-#         (Unary
-#           op (Negate)
-#           src (Constant
-#             value 2
-#           )
-#           dst (Var
-#             name "tmp0"
-#           )
-#         )
-#         (Unary
-#           op (Complement)
-#           src (Var
-#             name "tmp0"
-#           )
-#           dst (Var
-#             name "tmp1"
-#           )
-#         )
-#         (Return
-#           val (Var
-#             name (Var
-#               name "tmp1"
-#             )
-#           )
-#         )
-#       )
-#     )
-#   )
-
-# ASM AST (FIXME)
-# -------
-# (Program
-#   funcdef (Function
-#     name (Identifier
-#       name "main"
-#     )
-#     instructions (list
-#       Subq
-#       Neg
-#       Not
-#       Ret
-#     )
-#   )
-# )
-
-
-# And then emit:
-#     .globl main
-# main:
-#     pushq %rbp
-#     movq %rsp, %rbp
-#     subq $8, %rsp
-#     movl $2, -4(%rbp)
-#     negl -4(%rbp)
-#     movl -4(%rbp), %r10d
-#     movl %r10d, -8(%rbp)
-#     notl -8(%rbp)
-#     movl -8(%rbp), %eax
-#     movq %rbp, %rsp
-#     popq %rbp
-#     ret
+# Note that my amd64 AST diverges from the book:
+# - removed the 'Function' AST node
+# - added 'Directive', 'LabelDef' and 'Comment' AST nodes
+# - split up the Instruction class hierarchy by arity (Instruction0, Instruction1, ...)
+# - added a few organization superclasses (Statement, Instruction)
 
 # Note: 'GAS' (GNU as) syntax is:
 #   instruction source, destination
 # e.g. this copies %rsp into %rbp:
 #   movl %rsp, %rbp
 
+from jpcc import targets
 
 tab_width = 8  # the visible width of a rendered tab character
 comment_col = 32  # the column at which comments should start.
@@ -189,6 +76,14 @@ def _add_comment(stmt: str, comment: str, c_style: bool = False) -> str:
     else:
         line = f"{stmt}{pad}# {comment}"
     return line
+
+
+def format_label(label: str) -> str:
+    match targets.current_target.os:
+        case "darwin":
+            return f"_{label}"
+        case _:
+            return label
 
 
 class ASM_AST: pass
@@ -373,14 +268,6 @@ class Subq(Instruction2):
         return _coalesce(super().get_comment(), default)
 
 
-def _format_label(label: str) -> str:
-    match Targets.current_target.os:
-        case "darwin":
-            return f"_{label}"
-        case _:
-            return label
-
-
 @dataclass
 class LabelDef(Statement):
     def __init__(self, name: str, comment: str = None):
@@ -388,7 +275,7 @@ class LabelDef(Statement):
         self.comment = comment
 
     def gas(self) -> str:
-        line = f"{_format_label(self.name)}:"
+        line = f"{format_label(self.name)}:"
         line = _add_comment(line, self.get_comment())
         return line
 
@@ -414,136 +301,3 @@ class Program(ASM_AST):
     statements: list[Statement]
     def gas(self) -> str:
         return "\n".join([s.gas() for s in self.statements]) + "\n"
-
-
-from jpcc import TAC
-
-def _lowest_offset(symbol_table: dict) -> int:
-    "Find the lowest offset in the symbol table."
-    lowest = 0
-    for k, v in symbol_table.items():
-        if v.offset < lowest:
-            lowest = v.offset
-    return lowest
-
-
-def _get_symbol(symbol: str, symbol_table: dict):
-    "Return the Stack() location of the symbol, adding it to the table if needed."
-    assert isinstance(symbol, str), symbol
-    if symbol not in symbol_table:
-        lowest = _lowest_offset(symbol_table)
-        symbol_table[symbol] = Stack(lowest - 8)
-    return symbol_table[symbol]
-
-
-def gen_Program(tac_ast: TAC.Program) -> Program:
-    "Generate assembly for a TAC.Program."
-    assert(isinstance(tac_ast, TAC.Program))
-    asm_ast = Program(
-        statements = _gen_Function(tac_ast.funcdef)
-    )
-    return asm_ast
-
-
-def _gen_Function(tac_fn_ast: TAC.Function) -> list[Statement]:
-    "Generate assembly for a TAC.Function."
-    assert(isinstance(tac_fn_ast, TAC.Function))
-    statements = []
-    funcname = tac_fn_ast.name
-
-    # declare the function.
-    funclabel = _format_label(funcname)
-    statements += [
-        Directive(".globl", funclabel, f"Make {funclabel} externally visible."),
-        LabelDef(funcname, f"Begin function {funcname}.")
-    ]
-
-    # function prologue.
-    statements += [
-        Pushq(RBP(), "Save the caller's base pointer."),
-        Movq(src=RSP(), dst=RBP(), comment="Start a new stack frame."),
-    ]
-    allocate_stack = Subq(src=Fixup(), dst=RSP(), comment=Fixup())
-    statements.append(allocate_stack)
-
-    # function body.
-    assert(isinstance(tac_fn_ast.body, list))
-    symbol_table = {}
-    for tac_inst in tac_fn_ast.body:
-        statements += _gen_Instruction(tac_inst, symbol_table)
-
-    # fixup the stack allocation.
-    lowest = _lowest_offset(symbol_table)
-    allocate_stack.src = Stack(lowest)
-    allocate_stack.comment = f"Allocate {lowest * -1} bytes on the stack for locals."
-
-    statements += [Comment(f"End function {funcname}.")]
-    return statements
-
-
-
-def _gen_Instruction(tac_ast: TAC.Instruction, symbol_table: dict) -> list[Statement]:
-    "Generate assembly for a TAC.Instruction."
-    assert isinstance(tac_ast, TAC.Instruction)
-    statements = []
-    match tac_ast:
-        case TAC.Unary():
-            return _gen_Unary(tac_ast, symbol_table)
-        case TAC.Return():
-            return _gen_Return(tac_ast, symbol_table)
-        case _:
-            raise Exception(f"Unreachable")
-    return statements
-
-
-def _gen_Unary(tac_ast: TAC.Unary, symbol_table: dict) -> list[Statement]:
-    "Generate assembly for a TAC.Unary."
-    assert isinstance(tac_ast, TAC.Unary)
-    statements = []
-    match tac_ast:
-        case TAC.Unary(op, tac_src, tac_dst):
-            match tac_src:
-                case TAC.Constant() as con:
-                    src = Imm(con.value)
-                case TAC.Var() as var:
-                    src = _get_symbol(var.name, symbol_table)
-                case _:
-                    raise Exception(f"Unreachable")
-            dst = _get_symbol(tac_dst.name, symbol_table)
-            # pretend this is a load-store architecture.
-            # load the src into a register.
-            statements += [Movl(src=src, dst=R11D(), comment="Load.")]
-            # perform the unary operation on the register.
-            match op:
-                case TAC.Complement():
-                    statements += [Notl(R11D())]
-                case TAC.Negate():
-                    statements += [Negl(R11D())]
-                case _:
-                    raise Exception(f"Unreachable")
-            # store the register into dst.
-            statements += [Movl(src=R11D(), dst=dst, comment="Store.")]
-        case _:
-            raise Exception(f"Unreachable")
-    return statements
-
-
-def _gen_Return(tac_ast: TAC.Return, symbol_table: dict) -> list[Statement]:
-    "Generate assembly for a TAC.Return."
-    assert isinstance(tac_ast, TAC.Return)
-    arg = tac_ast.val
-    assert isinstance(arg, TAC.Operand)
-    match arg:
-        case TAC.Constant() as con:
-            src = Imm(con.value)
-        case TAC.Var() as var:
-            src = _get_symbol(var.name, symbol_table)
-        case _:
-            raise Exception(f"Unreachable")
-    statements = [
-        Movl(src=src, dst=EAX(), comment=f"Use {src.gas()} as the return value."),
-        Movq(src=RBP(), dst=RSP(), comment="Tear down the stack frame."),
-        Popq(RBP(), "Restore the caller's base pointer."),
-        Ret(comment="Jump to the return address."),
-    ]
-    return statements
