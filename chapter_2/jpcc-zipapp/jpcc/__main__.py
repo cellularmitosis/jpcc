@@ -277,11 +277,22 @@ if __name__ == "__main__":
         status = shell(cmdline)
         if status != 0: sys.exit(status)
 
-        # copy the executable (or .o file) back to localhost.
-        cmdline = f"scp -q {host}:{remote_bin_fname} {bin_fname}"
-        sys.stderr.write(cmdline + '\n')
-        status = shell(cmdline)
-        sys.exit(status)
+        # if this was a .o, copy it back to localhost.
+        if bin_fname.endswith('.o'):
+            cmdline = f"scp -q {host}:{remote_bin_fname} {bin_fname}"
+            sys.stderr.write(cmdline + '\n')
+            status = shell(cmdline)
+            sys.exit(status)
+        # if this was an executable, create a wrapper script to invoke it remotely.
+        else:
+            with open(bin_fname, "w") as fd:
+                script = f"""#!/bin/bash
+set -e
+ssh {host} "{remote_bin_fname} \\"$@\\""
+"""
+                fd.write(script)
+            assert shell(f"chmod +x {bin_fname}") == 0
+
     else:
         # assume localhost is the correct target and run gcc locally.
         cmdline = f"{cc} {c_flag} -o {bin_fname} {s_fname}"
