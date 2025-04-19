@@ -3,7 +3,7 @@
 # use gcc to compile C to assembly on a remote host of a specific architecture.
 # use flags to avoid directive noise, etc.
 
-set -e
+set -e -o pipefail
 
 cfile=$1
 host=$2
@@ -107,15 +107,15 @@ chmod +x /tmp/script.sh
 if test -z "$host" ; then
     echo "usage: $0 c/file.c hostname" >&2
     echo "hosts:" >&2
-    echo "  uranium (darwin-arm64)" >&2
-    echo "  flouride (darwin-x86_64)" >&2
-    echo "  ibookg3 (darwin-powerpc)" >&2
-    echo "  opti7050 (linux-x86_64)" >&2
-    echo "  mini10v (linux-i686)" >&2
-    echo "  pogo1 (linux-armv5tel)" >&2
-    echo "  qmips (linux-mips)" >&2
-    echo "  qppc (linux-ppc)" >&2
-    echo "  riscv (linux-riscv)" >&2
+    echo "  uranium (arm64_darwin)" >&2
+    echo "  flouride (amd64_darwin)" >&2
+    echo "  ibookg3 (ppc_darwin)" >&2
+    echo "  opti7050 (amd64_linux)" >&2
+    echo "  mini10v (i386_linux)" >&2
+    echo "  pogo1 (arm_linux)" >&2
+    echo "  qmips (mips_linux)" >&2
+    echo "  qppc (ppc_linux)" >&2
+    echo "  riscv (riscv_linux)" >&2
     exit 1
 fi
 
