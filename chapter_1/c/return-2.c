@@ -1,3 +1,1 @@
-int main(void) {
-    return 2;
-}
+../../misc/c/return-2.c

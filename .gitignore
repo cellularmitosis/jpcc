@@ -7,9 +7,9 @@ __pycache__/
 /chapter_*/jpcc
 
 # only keep .c files in the c dirs.
-/chapter_*/c/*
-!/chapter_*/c/*.c
+/misc/c/*
+!/misc/c/*.c
 
 # only keep .s files in the s dirs.
-/chapter_*/s/*
-!/chapter_*/s/*.s
+/misc/s/*
+!/misc/s/*.s

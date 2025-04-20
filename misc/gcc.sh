@@ -36,7 +36,7 @@ if test "$host" = "ibookg3" ; then
 else
     arch=\$(uname -m)
 fi
-platform=\$os-\$arch
+platform=\${arch}_\${os}
 echo platform: \$platform
 
 # determine which cc to use
@@ -55,14 +55,13 @@ fi
 for opt in O O0 ; do
     # choose flags to reduce noise in the asm output
     ccopts="-fno-asynchronous-unwind-tables -fno-verbose-asm -fno-pie -g0"
-    if ! gcc --version 2>&1 | grep -q ' 4\.' ; then
+    if ! \$cc --version 2>&1 | grep -q -e 'gcc' -e ' 4\.' ; then
         # if this isn't old gcc, we can use more options.
         ccopts="\$ccopts -fcf-protection=none -fno-dwarf2-cfi-asm"
     fi
 
     # compile C to asm:
-    \$cc -S -\$opt \$ccopts \
-        /tmp/in.c -o /tmp/out.s
+    \$cc -S -\$opt \$ccopts /tmp/in.c -o /tmp/out.s
 
     # clean up the asm output further
     asm_ext=.\${platform}.\${opt}.s
@@ -80,23 +79,47 @@ for opt in O O0 ; do
     fi
 
     # display the asm
-    echo "---- \$asm_fname with -\$opt:"
+    echo "---- \$asm_fname:"
     cat /tmp/\$asm_fname
 
     # verify the cleaned up asm still compiles
-    set +e
     if test "\$has_main" = "1" ; then
-        rm -f /tmp/a.out && gcc /tmp/\$asm_fname -o /tmp/a.out && /tmp/a.out ; echo return value: \$?
+        bin_fname=a.out
+        rm -f /tmp/\$bin_fname
+        \$cc -\$opt \$ccopts /tmp/\$asm_fname -o /tmp/\$bin_fname
     else
-        rm -f /tmp/a.o && gcc -c /tmp/\$asm_fname -o /tmp/a.o && objdump -t /tmp/a.o ; echo return value: \$?
+        bin_fname=a.o
+        rm -f /tmp/\$bin_fname
+        \$cc -c -\$opt \$ccopts /tmp/\$asm_fname -o /tmp/\$bin_fname
     fi
-    set -e
+
+    # display the decompiled asm
+    if which objdump >/dev/null 2>&1 ; then
+        dis_ext=.\${platform}.\${opt}.objdump
+        dis_fname=\$(basename $cfile .c)\$dis_ext
+        echo "---- \$dis_fname:"
+        objdump -d /tmp/\$bin_fname | tee /tmp/\$dis_fname
+    elif which otool >/dev/null 2>&1 ; then
+        dis_ext=.\${platform}.\${opt}.otool
+        dis_fname=\$(basename $cfile .c)\$dis_ext
+        echo "---- \$dis_fname:"
+        otool -tV /tmp/\$bin_fname | tee /tmp/\$dis_fname
+    fi
+
+    # run the binary
+    if test "\$has_main" = "1" ; then
+        set +e
+        /tmp/\$bin_fname ; echo "---- return value: \$?"
+        set -e
+    fi
 
     # copy the .s files back to the original host / dir
     if test "$host" = "localhost" ; then
         cp /tmp/\$asm_fname $origdir/s/\$asm_fname
+        cp /tmp/\$dis_fname $origdir/s/\$dis_fname
     else
         scp /tmp/\$asm_fname $origuser@$orighost:$origdir/s/\$asm_fname
+        scp /tmp/\$dis_fname $origuser@$orighost:$origdir/s/\$dis_fname
     fi
 
     echo
